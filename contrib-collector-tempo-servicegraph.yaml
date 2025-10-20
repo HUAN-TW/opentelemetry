@@ -1,0 +1,96 @@
+apiVersion: opentelemetry.io/v1beta1
+kind: OpenTelemetryCollector
+metadata:
+  name: contrib-collector-tempo-servicegraph
+  namespace: tracing-system
+spec:
+  mode: deployment
+  serviceAccount: otel-collector
+  config:
+    receivers:
+      otlp:
+        protocols:
+          grpc: {}
+          http: {}
+    
+    processors:
+      batch: {}
+    
+    # 使用 servicegraph connector
+    connectors:
+      servicegraph:
+        dimensions:
+          - db.system
+          - messaging.system
+          - http.method
+          - http.status_code
+          - service.version
+        virtual_node_peer_attributes:
+          - db.name
+          - db.system
+          - messaging.system
+          - peer.service
+        virtual_node_extra_label: true
+
+    # 使用 spanmetrics connector
+      spanmetrics:
+        dimensions:
+          - name: http.method
+            default: GET
+          - name: http.status_code
+          - name: service.version
+        exemplars:
+          enabled: true
+        
+        aggregation_temporality: "AGGREGATION_TEMPORALITY_CUMULATIVE"
+        
+        metrics_expiration: 5m
+    
+    extensions:
+      bearertokenauth:
+        filename: "/var/run/secrets/kubernetes.io/serviceaccount/token"
+    
+    exporters:
+      # gRPC 到 Tempo Gateway
+      otlp/tempo-grpc:
+        endpoint: tempo-simplest-gateway.tracing-system.svc.cluster.local:8090
+        tls:
+          insecure: false
+          ca_file: "/var/run/secrets/kubernetes.io/serviceaccount/service-ca.crt"
+        auth:
+          authenticator: bearertokenauth
+        headers:
+          X-Scope-OrgID: "dev"
+        retry_on_failure:
+          enabled: true
+        sending_queue:
+          enabled: true
+      
+      prometheus:
+        endpoint: "0.0.0.0:8889" 
+      debug/stdout:
+        verbosity: detailed
+     
+      prometheusremotewrite/servicegraph:
+        endpoint: "http://10.25.230.14:9090/api/v1/write"
+
+    service:
+      extensions: [bearertokenauth]
+      telemetry:
+        logs:
+          level: debug
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [batch]
+          exporters: [otlp/tempo-grpc, debug/stdout, spanmetrics, servicegraph]
+        
+        # metrics pipeline 處理從 traces 生成的指標
+        metrics:
+          receivers: [spanmetrics]
+          processors: [batch]
+          exporters: [prometheus]
+        
+        metrics/servicegraph:
+          receivers: [servicegraph]
+          exporters: [prometheusremotewrite/servicegraph]
