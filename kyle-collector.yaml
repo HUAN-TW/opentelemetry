@@ -26,11 +26,11 @@ spec:
           thrift_binary: {}
           thrift_compact: {}
           thrift_http: {}
-          grpc: http://jaeger-collector.servicemesh.svc.cluster.local:4317
+          grpc: {}
     exporters:
       debug: {}
       prometheus:
-        endpoint: http://10.64.140.111:9090
+        endpoint: 0.0.0.0:8889
         add_metric_suffixes: false
         resource_to_telemetry_conversion:
           enabled: true
